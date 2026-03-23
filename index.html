@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kids Ministry Dashboard</title>
+  <style>
+    /* Clean, basic styling */
+    body { font-family: sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 0; }
+    .header { background: #1e3a5f; padding: 20px; border-bottom: 3px solid #3b82f6; display: flex; justify-content: space-between; align-items: center; }
+    .setup-container { display: flex; justify-content: center; padding: 50px 20px; }
+    .card { background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; width: 100%; max-width: 450px; }
+    .form-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; font-size: 12px; color: #94a3b8; text-transform: uppercase; }
+    input { width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: white; box-sizing: border-box; }
+    .btn { width: 100%; padding: 12px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+    .btn:hover { background: #1d4ed8; }
+    #dashboard { display: none; padding: 20px; }
+    .teams-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px; }
+    .team-card { background: #1e293b; padding: 15px; border-radius: 8px; border: 1px solid #334155; }
+    .person-row { padding: 8px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; }
+    .status-C { color: #4ade80; } .status-D { color: #f87171; text-decoration: line-through; } .status-U { color: #fbbf24; }
+    .error-msg { background: #451a1a; color: #fca5a5; padding: 10px; border-radius: 6px; margin-bottom: 20px; display: none; }
+  </style>
+</head>
+<body>
+
+<div id="setupPanel">
+  <div class="header"><h1>Kids Ministry Setup</h1></div>
+  <div class="setup-container">
+    <div class="card">
+      <div id="setupError" class="error-msg"></div>
+      <div class="form-group">
+        <label>Client ID</label>
+        <input type="text" id="clientId" placeholder="Enter ID...">
+      </div>
+      <div class="form-group">
+        <label>Client Secret</label>
+        <input type="password" id="clientSecret" placeholder="Enter Secret...">
+      </div>
+      <button class="btn" onclick="connect()">Connect & Load Dashboard</button>
+    </div>
+  </div>
+</div>
+
+<div id="dashboard">
+  <div class="header">
+    <h1 id="dashTitle">Loading...</h1>
+    <button style="background:none; border:1px solid #444; color:white; cursor:pointer;" onclick="showSetup()">Settings</button>
+  </div>
+  <div id="statusUpdate" style="padding: 10px; font-size: 13px; color: #94a3b8;"></div>
+  <div id="mainContent" class="teams-grid"></div>
+</div>
+
+<script>
+// --- CONFIG ---
+const SERVICE_TYPE_ID = '220905';
+const TEAM_DEFS = {
+  '5616258': 'Adventure Land',
+  '5750692': 'Small Town',
+  '5993641': 'Brandywine Buddies',
+  '5993644': 'KidMin Host & Check-In'
+};
+const TEAM_ORDER = ['5616258', '5750692', '5993641', '5993644'];
+
+let creds = null;
+
+function connect() {
+  console.log("Button clicked...");
+  const id = document.getElementById('clientId').value.trim();
+  const sec = document.getElementById('clientSecret').value.trim();
+
+  if (!id || !sec) {
+    alert("Please enter both ID and Secret.");
+    return;
+  }
+
+  // Save for next time
+  localStorage.setItem('pco_id', id);
+  localStorage.setItem('pco_sec', sec);
+  creds = { id, sec };
+
+  // IMMEDIATELY switch view so you see it working
+  document.getElementById('setupPanel').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  
+  startLoading();
+}
+
+function showSetup() {
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('setupPanel').style.display = 'block';
+}
+
+async function startLoading() {
+  const status = document.getElementById('statusUpdate');
+  try {
+    status.innerText = "Connecting to Planning Center...";
+    
+    // Fetch Plans
+    const auth = btoa(creds.id + ":" + creds.sec);
+    const planRes = await fetch(`https://api.planningcenteronline.com/services/v2/service_types/${SERVICE_TYPE_ID}/plans?filter=future&per_page=1`, {
+      headers: { 'Authorization': 'Basic ' + auth }
+    });
+    
+    if (!planRes.ok) throw new Error("Connection failed. Check your ID and Secret.");
+    
+    const planData = await planRes.json();
+    const plan = planData.data[0];
+    document.getElementById('dashTitle').innerText = plan.attributes.dates;
+
+    // Fetch Team Members
+    status.innerText = "Fetching team members...";
+    const teamRes = await fetch(`https://api.planningcenteronline.com/services/v2/service_types/${SERVICE_TYPE_ID}/plans/${plan.id}/team_members?per_page=150`, {
+      headers: { 'Authorization': 'Basic ' + auth }
+    });
+    const teamData = await teamRes.json();
+    
+    render(teamData.data);
+    status.innerText = "Last updated: " + new Date().toLocaleTimeString();
+
+  } catch (err) {
+    status.innerHTML = `<b style="color:red">ERROR: ${err.message}</b><br>Make sure you are not opening this file directly from your computer (double-clicking the .html file). Browsers block these requests for security.`;
+    console.error(err);
+  }
+}
+
+function render(members) {
+  const container = document.getElementById('mainContent');
+  container.innerHTML = '';
+
+  TEAM_ORDER.forEach(tid => {
+    const teamName = TEAM_DEFS[tid];
+    const people = members.filter(m => m.relationships.team.data.id === tid);
+    
+    let html = `<div class="team-card"><h3>${teamName}</h3>`;
+    if (people.length === 0) {
+      html += `<p style="font-size:12px; color:#666">No one scheduled</p>`;
+    } else {
+      people.forEach(p => {
+        const status = p.attributes.status || 'U';
+        html += `<div class="person-row">
+          <span>${p.attributes.name}</span>
+          <span class="status-${status}">${status === 'C' ? '✔' : status === 'D' ? '✘' : '?'}</span>
+        </div>`;
+      });
+    }
+    html += `</div>`;
+    container.innerHTML += html;
+  });
+}
+
+// Auto-fill credentials if saved
+window.onload = function() {
+  const savedId = localStorage.getItem('pco_id');
+  const savedSec = localStorage.getItem('pco_sec');
+  if (savedId) document.getElementById('clientId').value = savedId;
+  if (savedSec) document.getElementById('clientSecret').value = savedSec;
+};
+</script>
+
+</body>
+</html>
