@@ -95,11 +95,14 @@ function showSetup() {
 async function startLoading() {
   const status = document.getElementById('statusUpdate');
   try {
-    status.innerText = "Connecting to Planning Center...";
+    status.innerText = "Connecting to Planning Center (via Proxy)...";
     
-    // Fetch Plans
     const auth = btoa(creds.id + ":" + creds.sec);
-    const planRes = await fetch(`https://api.planningcenteronline.com/services/v2/service_types/${SERVICE_TYPE_ID}/plans?filter=future&per_page=1`, {
+    const proxy = "https://corsproxy.io/?";
+    
+    // 1. Fetch Plans
+    const planUrl = `https://api.planningcenteronline.com/services/v2/service_types/${SERVICE_TYPE_ID}/plans?filter=future&per_page=1`;
+    const planRes = await fetch(proxy + encodeURIComponent(planUrl), {
       headers: { 'Authorization': 'Basic ' + auth }
     });
     
@@ -109,18 +112,22 @@ async function startLoading() {
     const plan = planData.data[0];
     document.getElementById('dashTitle').innerText = plan.attributes.dates;
 
-    // Fetch Team Members
+    // 2. Fetch Team Members
     status.innerText = "Fetching team members...";
-    const teamRes = await fetch(`https://api.planningcenteronline.com/services/v2/service_types/${SERVICE_TYPE_ID}/plans/${plan.id}/team_members?per_page=150`, {
+    const teamUrl = `https://api.planningcenteronline.com/services/v2/service_types/${SERVICE_TYPE_ID}/plans/${plan.id}/team_members?per_page=150`;
+    const teamRes = await fetch(proxy + encodeURIComponent(teamUrl), {
       headers: { 'Authorization': 'Basic ' + auth }
     });
+    
+    if (!teamRes.ok) throw new Error("Could not load team members.");
+    
     const teamData = await teamRes.json();
     
     render(teamData.data);
     status.innerText = "Last updated: " + new Date().toLocaleTimeString();
 
   } catch (err) {
-    status.innerHTML = `<b style="color:red">ERROR: ${err.message}</b><br>Make sure you are not opening this file directly from your computer (double-clicking the .html file). Browsers block these requests for security.`;
+    status.innerHTML = `<b style="color:red">ERROR: ${err.message}</b><br>If this persists, double check your Planning Center Personal Access Token has 'Services' permissions.`;
     console.error(err);
   }
 }
